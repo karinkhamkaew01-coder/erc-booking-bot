@@ -1,5 +1,5 @@
 {
-    "should_send": false,
-    "message": "",
-    "include_image": false
+    "should_send": true,
+    "message": "🤖 บอทรายงานตัวรอบ 16:00 น.\n🔒 สถานะปัจจุบัน: ยังไม่มีคิวว่าง (ใบอนุญาต อ.1)",
+    "include_image": true
 }
