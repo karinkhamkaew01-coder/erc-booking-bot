@@ -81,7 +81,8 @@ def check_queue():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--window-size=1920,1080')
+    # ตั้ง window สูงมากๆ ตั้งแต่แรก เพื่อให้ render ทั้งหน้าตั้งแต่ต้น
+    options.add_argument('--window-size=1920,5000')
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     current_slots = set()
@@ -89,8 +90,8 @@ def check_queue():
     try:
         driver.get(TARGET_URL)
         wait = WebDriverWait(driver, 30)
-        
-        # 1. คลิกเลือกบริการ "อ.1" ก่อน เพื่อให้ปฏิทินแสดงคิวของ อ.1
+
+        # 1. คลิกเลือกบริการ "อ.1" ก่อน
         service_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(), 'อ.1')]")))
         service_button.click()
         print("✅ คลิกเลือก อ.1 สำเร็จ")
@@ -98,49 +99,24 @@ def check_queue():
         # 2. รอให้ปฏิทินโหลดเสร็จ
         time.sleep(3)
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='grid']")))
-
-        # 3. ถ่ายรูป — ซ่อนฟอร์มฝั่งขวาชั่วคราว แล้วถ่ายเฉพาะปฏิทิน
-        print("📸 กำลังถ่ายรูปปฏิทิน...")
-        try:
-            # inject CSS ซ่อน input, form, textarea ทั้งหมดชั่วคราว
-            # เพื่อให้ browser render ได้ไม่สับสน แต่ปฏิทินยังอยู่
-            driver.execute_script("""
-                window.__hidden_els = [];
-                var selectors = [
-                    'input', 'textarea', 'form',
-                    '[data-automationid="DetailsForm"]',
-                    '[class*="form"]', '[class*="Form"]',
-                    '[class*="details"]', '[class*="Details"]',
-                    '[class*="attendee"]', '[class*="Attendee"]'
-                ];
-                selectors.forEach(function(sel) {
-                    document.querySelectorAll(sel).forEach(function(el) {
-                        if (el.style.display !== 'none') {
-                            window.__hidden_els.push({el: el, display: el.style.display});
-                            el.style.display = 'none';
-                        }
-                    });
-                });
-            """)
-            time.sleep(0.5)
-            driver.save_screenshot('current_state.png')
-            print("📸 บันทึกภาพสำเร็จ")
-
-            # คืนสภาพทุก element ที่ซ่อนไว้
-            driver.execute_script("""
-                if (window.__hidden_els) {
-                    window.__hidden_els.forEach(function(item) {
-                        item.el.style.display = item.display;
-                    });
-                }
-            """)
-        except Exception as e:
-            print(f"⚠️ screenshot ล้มเหลว: {e} — ใช้ fallback")
-            driver.save_screenshot('current_state.png')
-
-        # 4. รอให้ element คืนสภาพก่อนดึงข้อมูลคิว
         time.sleep(1)
-        wait.until(EC.presence_of_element_located((By.XPATH, "//button[@role='gridcell']")))
+
+        # 3. ดึงความสูงจริงของ document แล้วขยาย window ให้พอดี
+        scroll_height = driver.execute_script("""
+            return Math.max(
+                document.body.scrollHeight,
+                document.documentElement.scrollHeight,
+                document.body.offsetHeight,
+                document.documentElement.offsetHeight
+            );
+        """)
+        print(f"📐 document scrollHeight = {scroll_height}px")
+        driver.set_window_size(1920, max(scroll_height, 5000))
+        time.sleep(1)
+
+        # 4. ถ่ายรูปทั้งหน้า
+        driver.save_screenshot('current_state.png')
+        print("📸 ถ่ายรูปทั้งหน้าสำเร็จ")
             
         # 4. ดึงข้อมูลคิวปกติ
         available_days = driver.find_elements(By.XPATH, "//button[@role='gridcell' and not(@disabled)]")
