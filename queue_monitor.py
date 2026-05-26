@@ -81,7 +81,8 @@ def check_queue():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--window-size=1920,1200')
+    # ปรับขนาดหน้าจอให้พอดี เพื่อไม่ให้กล้องกว้างเกินไปจนติดส่วนล่าง
+    options.add_argument('--window-size=1920,1080')
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     current_slots = set()
@@ -101,12 +102,16 @@ def check_queue():
         wait.until(EC.presence_of_element_located((By.XPATH, "//button[@role='gridcell']")))
         print("✅ ปฏิทินโหลดสำเร็จ")
 
-        # 🚨 [แก้ไขจุดนี้] เลื่อนหน้าจอให้ "ปฏิทิน" มาอยู่ตรงกลางสายตาพอดี ไม่เลื่อนลงไปล่างสุดแล้ว
+        # 🚨 [ไม้ตายขั้นเด็ดขาด] คำนวณพิกัด Y ของปฏิทิน แล้วสั่งเลื่อนไปที่พิกัดนั้นเป๊ะๆ
         time.sleep(1)
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", calendar_grid)
-        time.sleep(2) # รอระนาบจอให้นิ่ง
+        # ดึงพิกัดแนวตั้ง (Y) ของตารางปฏิทิน
+        y_position = calendar_grid.location['y']
         
-        # 📸 ถ่ายรูปหน้าจอ (รอบนี้จะได้รูปปฏิทินเน้นๆ แน่นอนครับ)
+        # สั่งเลื่อนจอไปที่พิกัด Y หักลบด้วย 250 พิกเซล (เพื่อให้เห็นตัวหนังสือเดือน "มิถุนายน" ที่อยู่ด้านบนด้วยพอดี)
+        driver.execute_script(f"window.scrollTo(0, {y_position - 250});")
+        time.sleep(2) # รอให้ภาพนิ่ง
+        
+        # 📸 ถ่ายรูปหน้าจอ
         driver.save_screenshot('current_state.png')
         print("📸 บันทึกภาพหน้าจอปฏิทินเรียบร้อย")
             
