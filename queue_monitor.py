@@ -99,50 +99,25 @@ def check_queue():
         time.sleep(3)
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='grid']")))
 
-        # 🚨 3. ถ่ายรูปเฉพาะ element ปฏิทินโดยตรง ไม่ต้อง scroll เลย
-        print("⏳ กำลังถ่ายรูปปฏิทิน...")
+        # 3. ถ่ายรูปทั้งหน้าเว็บ (full-page)
+        print("⏳ กำลังถ่ายรูปทั้งหน้าเว็บ...")
         try:
-            # หา container ที่ครอบทั้งปฏิทิน (header เดือน + ตารางวัน)
-            # element.screenshot() ของ Selenium จะ scroll element เข้า viewport ให้เองอัตโนมัติ
-            # และถ่ายเฉพาะ bounding box ของ element นั้น โดยไม่สนใจ scroll position
-            cal_container = None
-            xpath_candidates = [
-                # container ที่มีทั้ง h2 เดือน + grid (ครอบสุด)
-                "//*[.//h2 and .//*[@role='grid']]",
-                # parent 2 ชั้นของ grid
-                "//*[@role='grid']/parent::*/parent::*",
-                # parent 1 ชั้นของ grid
-                "//*[@role='grid']/parent::*",
-                # fallback: grid เอง
-                "//*[@role='grid']",
-            ]
-            for xp in xpath_candidates:
-                try:
-                    el = driver.find_element(By.XPATH, xp)
-                    h = el.size.get('height', 0)
-                    w = el.size.get('width', 0)
-                    print(f"  ลอง xpath: {xp[:60]} → size={w}x{h}")
-                    # รับเฉพาะ element ที่สูง 200–700px และกว้างพอ (ไม่ใช่ body ทั้งหมด)
-                    if 200 <= h <= 700 and w >= 200:
-                        cal_container = el
-                        print(f"  ✅ เลือก container: size={w}x{h}")
-                        break
-                except Exception:
-                    continue
+            # ดึงความสูงจริงของหน้าเว็บทั้งหมด
+            total_height = driver.execute_script("return document.body.scrollHeight")
+            total_width  = driver.execute_script("return document.body.scrollWidth")
+            print(f"📐 ขนาดหน้าเว็บ: {total_width}x{total_height}")
 
-            # ถ้ายังไม่เจอ ใช้ grid โดยตรง
-            if not cal_container:
-                cal_container = driver.find_element(By.XPATH, "//*[@role='grid']")
-                print(f"  ⚠️ ใช้ grid โดยตรง size={cal_container.size}")
+            # ขยาย window ให้ครอบทั้งหน้า แล้วถ่ายรูปครั้งเดียว
+            driver.set_window_size(total_width, total_height)
+            time.sleep(1)  # รอให้ reflow เสร็จ
 
-            # element.screenshot() — Selenium จัดการ scroll ให้เอง ไม่ขึ้นกับ viewport
-            cal_container.screenshot('current_state.png')
-            print("📸 บันทึกภาพปฏิทินสำเร็จ (element.screenshot)")
+            driver.save_screenshot('current_state.png')
+            print("📸 ถ่ายรูปทั้งหน้าสำเร็จ")
 
         except Exception as e:
-            print(f"⚠️ element.screenshot() ล้มเหลว: {e}")
+            print(f"⚠️ full-page screenshot ล้มเหลว: {e}")
             driver.save_screenshot('current_state.png')
-            print("📸 ถ่ายรูปเต็มหน้า (fallback)")
+            print("📸 ถ่ายรูป fallback")
             
         # 4. ดึงข้อมูลคิวปกติ
         available_days = driver.find_elements(By.XPATH, "//button[@role='gridcell' and not(@disabled)]")
