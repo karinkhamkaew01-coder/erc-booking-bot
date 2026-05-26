@@ -99,35 +99,70 @@ def check_queue():
         time.sleep(3)
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='grid']")))
 
-        # 🚨 3. scroll ให้ปฏิทินอยู่กลางจอ แล้วค่อยถ่ายรูป
-        print("⏳ กำลังจัดระเบียบหน้าจอให้กลับมาที่ปฏิทิน...")
+        # 🚨 3. ถ่ายรูปเฉพาะ element ปฏิทิน โดยไม่ต้อง scroll
+        print("⏳ กำลังถ่ายรูปเฉพาะส่วนปฏิทิน...")
 
         try:
-            calendar_grid = driver.find_element(By.XPATH, "//div[@role='grid']")
-            driver.execute_script("""
-                // ถอด focus ออกจากทุก input ก่อน
-                if (document.activeElement && document.activeElement.tagName !== 'BODY') {
-                    document.activeElement.blur();
-                }
-                // scroll ปฏิทินให้อยู่กลางจอ
-                arguments[0].scrollIntoView({block: 'center', behavior: 'instant'});
-            """, calendar_grid)
-        except:
-            driver.execute_script("window.scrollTo(0, 0);")
+            from PIL import Image
+            import io
 
-        time.sleep(1.5)  # รอให้ภาพนิ่ง
+            # ถ่าย fullpage ก่อน แล้วค่อย crop เอา element ปฏิทิน
+            # หา container ที่ใหญ่กว่า grid เพื่อให้เห็นหัว + ปฏิทิน
+            # ลอง xpath หลายแบบ เผื่อ structure ต่างกัน
+            calendar_container = None
+            for xpath in [
+                "//div[contains(@class,'booking') and .//div[@role='grid']]",
+                "//div[.//div[@role='grid']]",
+                "//div[@role='grid']",
+            ]:
+                try:
+                    calendar_container = driver.find_element(By.XPATH, xpath)
+                    print(f"✅ เจอ calendar container ด้วย xpath: {xpath}")
+                    break
+                except:
+                    continue
 
-        # ป้องกัน re-focus โดยคลิก body (ไม่ใช่ input)
-        try:
-            driver.execute_script("document.body.click();")
-        except:
-            pass
+            if calendar_container:
+                # ถ่าย screenshot ทั้งหน้าก่อน
+                full_png = driver.get_screenshot_as_png()
+                full_img = Image.open(io.BytesIO(full_png))
 
-        time.sleep(0.5)
+                # ดึง location และ size ของ element
+                loc = calendar_container.location
+                size = calendar_container.size
 
-        # 📸 ถ่ายรูปหน้าจอที่เห็นปฏิทิน
-        driver.save_screenshot('current_state.png')
-        print("📸 บันทึกภาพหน้าจอปฏิทินเรียบร้อย")
+                # คำนวณ device pixel ratio (retina screen)
+                dpr = driver.execute_script("return window.devicePixelRatio || 1")
+
+                # คำนวณพิกัด crop พร้อม padding รอบข้าง 40px
+                padding = 40
+                left   = max(0, int((loc['x'] - padding) * dpr))
+                top    = max(0, int((loc['y'] - padding) * dpr))
+                right  = int((loc['x'] + size['width']  + padding) * dpr)
+                bottom = int((loc['y'] + size['height'] + padding) * dpr)
+
+                # crop เฉพาะส่วนปฏิทิน
+                cropped = full_img.crop((left, top, right, bottom))
+                cropped.save('current_state.png')
+                print(f"📸 crop ปฏิทินสำเร็จ (loc={loc}, size={size}, dpr={dpr})")
+            else:
+                # fallback: ถ้าหา element ไม่เจอ ให้ถ่ายเต็มหน้า
+                driver.save_screenshot('current_state.png')
+                print("📸 ถ่ายรูปเต็มหน้า (fallback)")
+
+        except ImportError:
+            # ถ้าไม่มี Pillow ใช้ element screenshot ของ selenium โดยตรง
+            print("⚠️ ไม่มี Pillow ใช้ element.screenshot() แทน")
+            try:
+                calendar_el = driver.find_element(By.XPATH, "//div[@role='grid']")
+                calendar_el.screenshot('current_state.png')
+                print("📸 บันทึกภาพด้วย element.screenshot() สำเร็จ")
+            except:
+                driver.save_screenshot('current_state.png')
+                print("📸 ถ่ายรูปเต็มหน้า (fallback)")
+        except Exception as e:
+            print(f"⚠️ crop ไม่สำเร็จ: {e} — ใช้ fallback")
+            driver.save_screenshot('current_state.png')
             
         # 4. ดึงข้อมูลคิวปกติ
         available_days = driver.find_elements(By.XPATH, "//button[@role='gridcell' and not(@disabled)]")
