@@ -81,7 +81,6 @@ def check_queue():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    # ใช้ขนาดหน้าจอปกติ
     options.add_argument('--window-size=1920,1080')
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
@@ -96,32 +95,37 @@ def check_queue():
         service_button.click()
         print("✅ คลิกเลือก อ.1 สำเร็จ")
         
-        # 2. ปล่อยให้เว็บโหลดลงไปข้างล่างตามใจชอบให้เสร็จก่อน
+        # 2. รอให้หน้าโหลดปฏิทินให้เสร็จก่อน
         time.sleep(3)
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='grid']")))
 
-        # 🚨 3. [ไม้ตาย] ปลดอาวุธ Auto-focus และกระชากทุกกล่องกลับขึ้นบนสุด
+        # 🚨 3. scroll ให้ปฏิทินอยู่กลางจอ แล้วค่อยถ่ายรูป
         print("⏳ กำลังจัดระเบียบหน้าจอให้กลับมาที่ปฏิทิน...")
-        driver.execute_script("""
-            // ก. ถอดเคอร์เซอร์ออกจากช่องกรอกข้อมูลทั้งหมด
-            if (document.activeElement) {
-                document.activeElement.blur();
-            }
-            
-            // ข. ค้นหา 'ทุกกล่อง' บนเว็บ ถ้ากล่องไหนดันเลื่อนลงไป ให้ดึงกลับขึ้น Top 0 ให้หมด!
-            var elements = document.querySelectorAll('*');
-            for (var i = 0; i < elements.length; i++) {
-                if (elements[i].scrollTop > 0) {
-                    elements[i].scrollTop = 0;
+
+        try:
+            calendar_grid = driver.find_element(By.XPATH, "//div[@role='grid']")
+            driver.execute_script("""
+                // ถอด focus ออกจากทุก input ก่อน
+                if (document.activeElement && document.activeElement.tagName !== 'BODY') {
+                    document.activeElement.blur();
                 }
-            }
-            
-            // ค. เลื่อนหน้าต่างหลักกลับขึ้นบนสุด
-            window.scrollTo(0, 0);
-        """)
-        time.sleep(2) # รอให้ภาพนิ่งสนิท
-        
-        # 📸 ถ่ายรูปหน้าจอ (คราวนี้ต้องติดปฏิทินแบบหนีไปไหนไม่ได้แล้วครับ)
+                // scroll ปฏิทินให้อยู่กลางจอ
+                arguments[0].scrollIntoView({block: 'center', behavior: 'instant'});
+            """, calendar_grid)
+        except:
+            driver.execute_script("window.scrollTo(0, 0);")
+
+        time.sleep(1.5)  # รอให้ภาพนิ่ง
+
+        # ป้องกัน re-focus โดยคลิก body (ไม่ใช่ input)
+        try:
+            driver.execute_script("document.body.click();")
+        except:
+            pass
+
+        time.sleep(0.5)
+
+        # 📸 ถ่ายรูปหน้าจอที่เห็นปฏิทิน
         driver.save_screenshot('current_state.png')
         print("📸 บันทึกภาพหน้าจอปฏิทินเรียบร้อย")
             
