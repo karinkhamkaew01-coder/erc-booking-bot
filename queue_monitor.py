@@ -267,7 +267,7 @@ if __name__ == "__main__":
     current_hour = now_thailand.hour
     current_date_hour = now_thailand.strftime("%Y-%m-%d %H")
     
-    if current_hour in [9, 15] and not should_send:
+    if current_hour in [10, 16] and not should_send:
         if last_heartbeat != current_date_hour:
             if current_slots:
                 msg_slots = "\n".join(current_slots)
