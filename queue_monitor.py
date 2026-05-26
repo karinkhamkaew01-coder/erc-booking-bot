@@ -81,8 +81,8 @@ def check_queue():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    # ปรับขนาดหน้าจอให้พอดี เพื่อไม่ให้กล้องกว้างเกินไปจนติดส่วนล่าง
-    options.add_argument('--window-size=1920,1080')
+    # 🚨 ขยายความสูงจอให้เป็น 3000 พิกเซล เพื่อให้ครอบคลุมทั้งหน้าเว็บ
+    options.add_argument('--window-size=1920,3000')
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     current_slots = set()
@@ -96,26 +96,32 @@ def check_queue():
         service_button.click()
         print("✅ คลิกเลือก อ.1 สำเร็จ")
         
-        # 2. รอจนกว่าตัวปฏิทินจะโหลดขึ้นมาแสดงผลจริงๆ
-        print("⏳ กำลังรอให้ปฏิทินโหลดมาแสดงผล...")
-        calendar_grid = wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='grid']")))
-        wait.until(EC.presence_of_element_located((By.XPATH, "//button[@role='gridcell']")))
-        print("✅ ปฏิทินโหลดสำเร็จ")
+        # 2. ปล่อยให้เว็บโหลด และปล่อยให้มัน Auto-scroll ลงไปให้เสร็จ (รอ 3 วินาที)
+        print("⏳ รอให้เว็บโหลดและปล่อยให้ระบบ Auto-focus ของเว็บทำงานให้จบ...")
+        wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='grid']")))
+        time.sleep(3) 
 
-        # 🚨 [ไม้ตายขั้นเด็ดขาด] คำนวณพิกัด Y ของปฏิทิน แล้วสั่งเลื่อนไปที่พิกัดนั้นเป๊ะๆ
-        time.sleep(1)
-        # ดึงพิกัดแนวตั้ง (Y) ของตารางปฏิทิน
-        y_position = calendar_grid.location['y']
+        # 3. 🚨 สั่ง "กระชาก" หน้าจอกลับขึ้นมาด้านบน และเลื่อนหาปฏิทินให้อยู่ตรงกลางเป๊ะๆ
+        print("✅ กระชากหน้าจอกลับมาที่ปฏิทิน")
+        driver.execute_script("""
+            // เลื่อนขึ้นบนสุดก่อน
+            window.scrollTo(0, 0);
+            document.body.scrollTop = 0;
+            document.documentElement.scrollTop = 0;
+            
+            // หาปฏิทินแล้วจัดให้อยู่กลางจอ
+            var cal = document.querySelector("div[role='grid']");
+            if(cal) {
+                cal.scrollIntoView({block: 'center', behavior: 'instant'});
+            }
+        """)
+        time.sleep(2) # รอให้ภาพนิ่งสนิท
         
-        # สั่งเลื่อนจอไปที่พิกัด Y หักลบด้วย 250 พิกเซล (เพื่อให้เห็นตัวหนังสือเดือน "มิถุนายน" ที่อยู่ด้านบนด้วยพอดี)
-        driver.execute_script(f"window.scrollTo(0, {y_position - 250});")
-        time.sleep(2) # รอให้ภาพนิ่ง
-        
-        # 📸 ถ่ายรูปหน้าจอ
+        # 📸 ถ่ายรูปหน้าจอ (คราวนี้ไม่พลาดเป้าแน่นอน)
         driver.save_screenshot('current_state.png')
         print("📸 บันทึกภาพหน้าจอปฏิทินเรียบร้อย")
             
-        # 3. ดึงข้อมูลคิวปกติ
+        # 4. ดึงข้อมูลคิวปกติ
         available_days = driver.find_elements(By.XPATH, "//button[@role='gridcell' and not(@disabled)]")
         print(f"🔎 ตรวจพบวันที่ปฏิทินเปิดอยู่ทั้งหมด: {len(available_days)} วัน")
         
