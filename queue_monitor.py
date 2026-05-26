@@ -81,15 +81,13 @@ def check_queue():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    # เพิ่มขนาดหน้าจอให้ใหญ่มากพอที่จะเห็นปฏิทินโดยไม่ต้องเลื่อนจอมากนัก
-    options.add_argument('--window-size=1920,1800')
+    options.add_argument('--window-size=1920,1200')
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     current_slots = set()
     
     try:
         driver.get(TARGET_URL)
-        # ปรับเวลารอให้มากขึ้นเป็น 30 วินาที
         wait = WebDriverWait(driver, 30)
         
         # 1. คลิกเลือกบริการ "อ.1"
@@ -97,26 +95,23 @@ def check_queue():
         service_button.click()
         print("✅ คลิกเลือก อ.1 สำเร็จ")
         
-        # 🚨 จุดสำคัญ: 📸 สั่งให้บอทยืนรอจนกว่าตัวปฏิทินจะเรนเดอร์ขึ้นหน้าจอจริงๆ เท่านั้นถึงจะทำต่อ
+        # 2. รอจนกว่าตัวปฏิทินจะโหลดขึ้นมาแสดงผลจริงๆ
         print("⏳ กำลังรอให้ปฏิทินโหลดมาแสดงผล...")
-        # รอให้เจอ Element ที่เป็น 'กริดปฏิทิน' (div ที่มี role=grid)
         calendar_grid = wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='grid']")))
-        # และรอให้เจอ 'วันแรก' ที่กดเลือกได้ (ตัวแทนว่าข้อมูลปฏิทินมาครบแล้ว)
         wait.until(EC.presence_of_element_located((By.XPATH, "//button[@role='gridcell']")))
         print("✅ ปฏิทินโหลดสำเร็จ")
 
-        # 2. เลื่อนหน้าจอลงมานิดหน่อยเพื่อความชัวร์ และถ่ายรูปทั้งหน้าจอปกติ
-        time.sleep(2)
-        driver.execute_script("window.scrollTo(0, 300);") # เลื่อนลงนิดเดียวเพื่อให้เห็นตัวปฏิทินชัดๆ
+        # 🚨 [แก้ไขจุดนี้] เลื่อนหน้าจอให้ "ปฏิทิน" มาอยู่ตรงกลางสายตาพอดี ไม่เลื่อนลงไปล่างสุดแล้ว
         time.sleep(1)
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", calendar_grid)
+        time.sleep(2) # รอระนาบจอให้นิ่ง
         
-        # ถ่ายรูปหน้าจอมาตรฐาน (คราวนี้ปฏิทินต้องอยู่แน่นอน)
+        # 📸 ถ่ายรูปหน้าจอ (รอบนี้จะได้รูปปฏิทินเน้นๆ แน่นอนครับ)
         driver.save_screenshot('current_state.png')
-        print("📸 บันทึกภาพสถานะปัจจุบันที่มีปฏิทินเรียบร้อย")
+        print("📸 บันทึกภาพหน้าจอปฏิทินเรียบร้อย")
             
-        # 3. ดึงข้อมูลคิวปกติ (Xpath ระบบใหม่ของ Microsoft)
+        # 3. ดึงข้อมูลคิวปกติ
         available_days = driver.find_elements(By.XPATH, "//button[@role='gridcell' and not(@disabled)]")
-
         print(f"🔎 ตรวจพบวันที่ปฏิทินเปิดอยู่ทั้งหมด: {len(available_days)} วัน")
         
         for day in available_days:
@@ -154,7 +149,6 @@ def check_queue():
     return current_slots
 
 if __name__ == "__main__":
-    # ... (ส่วนล่างเหมือนเดิมทั้งหมด) ...
     if len(sys.argv) > 1 and sys.argv[1] == "--send":
         if os.path.exists(PENDING_FILE):
             with open(PENDING_FILE, "r", encoding="utf-8") as f:
