@@ -99,94 +99,48 @@ def check_queue():
         time.sleep(3)
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='grid']")))
 
-        # 🚨 3. บังคับ scroll ให้ปฏิทินอยู่ใน viewport แล้วค่อย crop จาก viewport จริง
-        print("⏳ กำลังถ่ายรูปเฉพาะส่วนปฏิทิน...")
-
+        # 🚨 3. ถ่ายรูปเฉพาะ element ปฏิทินโดยตรง ไม่ต้อง scroll เลย
+        print("⏳ กำลังถ่ายรูปปฏิทิน...")
         try:
-            from PIL import Image
-            import io
+            # หา container ที่ครอบทั้งปฏิทิน (header เดือน + ตารางวัน)
+            # element.screenshot() ของ Selenium จะ scroll element เข้า viewport ให้เองอัตโนมัติ
+            # และถ่ายเฉพาะ bounding box ของ element นั้น โดยไม่สนใจ scroll position
+            cal_container = None
+            xpath_candidates = [
+                # container ที่มีทั้ง h2 เดือน + grid (ครอบสุด)
+                "//*[.//h2 and .//*[@role='grid']]",
+                # parent 2 ชั้นของ grid
+                "//*[@role='grid']/parent::*/parent::*",
+                # parent 1 ชั้นของ grid
+                "//*[@role='grid']/parent::*",
+                # fallback: grid เอง
+                "//*[@role='grid']",
+            ]
+            for xp in xpath_candidates:
+                try:
+                    el = driver.find_element(By.XPATH, xp)
+                    h = el.size.get('height', 0)
+                    w = el.size.get('width', 0)
+                    print(f"  ลอง xpath: {xp[:60]} → size={w}x{h}")
+                    # รับเฉพาะ element ที่สูง 200–700px และกว้างพอ (ไม่ใช่ body ทั้งหมด)
+                    if 200 <= h <= 700 and w >= 200:
+                        cal_container = el
+                        print(f"  ✅ เลือก container: size={w}x{h}")
+                        break
+                except Exception:
+                    continue
 
-            # --- ขั้นตอน A: หา element ปฏิทิน ---
-            calendar_el = driver.find_element(By.XPATH, "//div[@role='grid']")
+            # ถ้ายังไม่เจอ ใช้ grid โดยตรง
+            if not cal_container:
+                cal_container = driver.find_element(By.XPATH, "//*[@role='grid']")
+                print(f"  ⚠️ ใช้ grid โดยตรง size={cal_container.size}")
 
-            # --- ขั้นตอน B: บังคับ scroll ทุก scroll container ที่ครอบ element นี้ ---
-            # ใช้ JS วิ่งขึ้นไปหา scrollable ancestor แล้ว scroll มันให้ element อยู่ใน viewport
-            driver.execute_script("""
-                var el = arguments[0];
+            # element.screenshot() — Selenium จัดการ scroll ให้เอง ไม่ขึ้นกับ viewport
+            cal_container.screenshot('current_state.png')
+            print("📸 บันทึกภาพปฏิทินสำเร็จ (element.screenshot)")
 
-                // scroll ตัว element เองก่อน
-                el.scrollIntoView({block: 'start', behavior: 'instant'});
-
-                // วิ่งขึ้นหา ancestor ที่ scroll ได้ แล้วดึงกลับขึ้นบน
-                var parent = el.parentElement;
-                while (parent && parent !== document.body) {
-                    var style = window.getComputedStyle(parent);
-                    var overflow = style.overflow + style.overflowY;
-                    if (overflow.includes('auto') || overflow.includes('scroll')) {
-                        // scroll ancestor นี้จนให้ el อยู่ที่ top
-                        parent.scrollTop = el.offsetTop - parent.offsetTop - 20;
-                    }
-                    parent = parent.parentElement;
-                }
-
-                // scroll window หลักด้วย
-                window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 20);
-            """, calendar_el)
-
-            time.sleep(1.5)  # รอให้ scroll นิ่ง
-
-            # --- ขั้นตอน C: ดึง bounding rect จาก viewport (ค่านี้ถูกต้องเสมอหลัง scroll) ---
-            rect = driver.execute_script("""
-                var el = arguments[0];
-                var r = el.getBoundingClientRect();
-                return {
-                    left:   r.left,
-                    top:    r.top,
-                    right:  r.right,
-                    bottom: r.bottom,
-                    width:  r.width,
-                    height: r.height
-                };
-            """, calendar_el)
-            print(f"📐 getBoundingClientRect = {rect}")
-
-            # --- ขั้นตอน D: ถ่าย screenshot viewport ณ ตอนนี้ ---
-            full_png = driver.get_screenshot_as_png()
-            full_img = Image.open(io.BytesIO(full_png))
-            img_w, img_h = full_img.size
-
-            # dpr สำหรับ HiDPI
-            dpr = driver.execute_script("return window.devicePixelRatio || 1")
-
-            # padding รอบข้าง 60px เพื่อให้เห็น header ปฏิทินด้วย
-            padding = 60
-            left   = max(0,     int((rect['left']   - padding) * dpr))
-            top    = max(0,     int((rect['top']    - padding) * dpr))
-            right  = min(img_w, int((rect['right']  + padding) * dpr))
-            bottom = min(img_h, int((rect['bottom'] + padding) * dpr))
-
-            print(f"✂️  crop: ({left}, {top}, {right}, {bottom}), img size: {img_w}x{img_h}, dpr: {dpr}")
-
-            # ถ้า top < 0 หรือ height < 50 แปลว่า element อยู่นอก viewport — fallback
-            if top < 0 or (bottom - top) < 50:
-                raise ValueError(f"element อยู่นอก viewport: top={top}, bottom={bottom}")
-
-            cropped = full_img.crop((left, top, right, bottom))
-            cropped.save('current_state.png')
-            print("📸 crop ปฏิทินสำเร็จ")
-
-        except ImportError:
-            print("⚠️ ไม่มี Pillow — ใช้ element.screenshot() แทน")
-            try:
-                calendar_el = driver.find_element(By.XPATH, "//div[@role='grid']")
-                calendar_el.screenshot('current_state.png')
-                print("📸 บันทึกภาพด้วย element.screenshot() สำเร็จ")
-            except Exception as e2:
-                print(f"⚠️ element.screenshot() ล้มเหลว: {e2}")
-                driver.save_screenshot('current_state.png')
-                print("📸 ถ่ายรูปเต็มหน้า (fallback)")
         except Exception as e:
-            print(f"⚠️ crop ไม่สำเร็จ: {e} — ใช้ fallback")
+            print(f"⚠️ element.screenshot() ล้มเหลว: {e}")
             driver.save_screenshot('current_state.png')
             print("📸 ถ่ายรูปเต็มหน้า (fallback)")
             
