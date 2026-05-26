@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import sys
 import requests
 from datetime import datetime, timedelta, timezone
 from selenium import webdriver
@@ -17,6 +18,7 @@ LINE_USER_ID = os.environ.get('LINE_USER_ID')
 TARGET_URL = 'https://bookings.cloud.microsoft/book/Bookings2@erc.or.th/?ismsaljsauthenabled'
 IGNORED_DATE = '2026-06-01'  # วันที่ 1/6/2569 ข้ามตามเงื่อนไขวันหยุด
 STATE_FILE = 'previous_slots.json'
+PENDING_FILE = 'pending_message.json'
 
 def send_line_message(text_message, include_image=False):
     if not LINE_ACCESS_TOKEN or not LINE_USER_ID:
@@ -47,7 +49,7 @@ def send_line_message(text_message, include_image=False):
     try:
         response = requests.post(url, headers=headers, json=payload)
         if response.status_code == 200:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] ส่ง LINE สำเร็จ (แนบรูป: {include_image})")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] ส่ง LINE สำเร็จ")
         else:
             print(f"ส่งไม่สำเร็จ: {response.status_code}, {response.text}")
     except Exception as e:
@@ -138,41 +140,64 @@ def check_queue():
     return current_slots
 
 if __name__ == "__main__":
+    # ─── โหมดที่ 2: สั่งให้ส่งข้อความ (จะทำงานหลังจาก GitHub อัปโหลดรูปภาพเสร็จแล้ว) ───
+    if len(sys.argv) > 1 and sys.argv[1] == "--send":
+        if os.path.exists(PENDING_FILE):
+            with open(PENDING_FILE, "r", encoding="utf-8") as f:
+                pending = json.load(f)
+            if pending.get("should_send"):
+                send_line_message(pending["message"], include_image=pending["include_image"])
+            try: os.remove(PENDING_FILE)
+            except: pass
+        sys.exit(0)
+
+    # ─── โหมดที่ 1: ตรวจเช็คคิวปกติ ───
     tz_thailand = timezone(timedelta(hours=7))
     now_thailand = datetime.now(tz_thailand)
     
     previous_slots, last_heartbeat = load_previous_state()
     current_slots = check_queue()
 
-    #คำนวณเปรียบเทียบหาความเปลี่ยนแปลงของคิว
-    new_available = current_slots - previous_slots  # คิวว่างใหม่
-    now_full = previous_slots - current_slots       # คิวที่เคยว่างแต่ตอนนี้เต็มแล้ว
+    new_available = current_slots - previous_slots
+    now_full = previous_slots - current_slots
 
-    # 1. 🚨 [ด่วน] แจ้งเตือนทันทีเมื่อพบคิวว่างใหม่โผล่มา (พร้อมแนบรูปถ่ายหน้าจอ)
+    should_send = False
+    report_msg = ""
+    include_image = False
+
     if new_available:
         msg_available = "\n".join(new_available)
-        send_line_message(f"🟢 [แจ้งเตือนด่วน] พบคิวว่างใหม่ (ใบอนุญาต อ.1):\n{msg_available}\n\nลิงก์จอง: {TARGET_URL}", include_image=True)
+        report_msg = f"🟢 [แจ้งเตือนด่วน] พบคิวว่างใหม่ (ใบอนุญาต อ.1):\n{msg_available}\n\nลิงก์จอง: {TARGET_URL}"
+        should_send = True
+        include_image = True
 
-    # 2. 🚨 [ด่วน] แจ้งเตือนทันทีเมื่อคิวที่เคยว่างหายไป/เต็มแล้ว (พร้อมแนบรูปถ่ายหน้าจอ)
-    if now_full:
+    elif now_full:
         msg_full = "\n".join(now_full)
-        send_line_message(f"🔴 [แจ้งเตือนด่วน] คิวนี้เต็มไปแล้ว:\n{msg_full}", include_image=True)
+        report_msg = f"🔴 [แจ้งเตือนด่วน] คิวนี้เต็มไปแล้ว:\n{msg_full}"
+        should_send = True
+        include_image = True
 
-    # 3. 📢 ระบบรายงานตัวสรุปยอดรอบปกติ (เวลา 09:00 น. และ 15:00 น.) พร้อมแนบรูปถ่ายหน้าจอ
     current_hour = now_thailand.hour
     current_date_hour = now_thailand.strftime("%Y-%m-%d %H")
     
-    if current_hour in [9, 15]:
+    if current_hour in [9, 15] and not should_send:
         if last_heartbeat != current_date_hour:
-            # ส่งสรุปยอดเฉพาะกรณีที่นาทีนี้ไม่มีแจ้งเตือนด่วนเด้งไปก่อนหน้า เพื่อไม่ให้ไลน์เด้งซ้ำซ้อน
-            if not new_available and not now_full:
-                if current_slots:
-                    msg_slots = "\n".join(current_slots)
-                    report_msg = f"🤖 บอทรายงานตัวรอบ {current_hour}:00 น.\n🟢 สถานะปัจจุบัน: พบคิวว่างในระบบ\n{msg_slots}\n\nลิงก์จอง: {TARGET_URL}"
-                else:
-                    report_msg = f"🤖 บอทรายงานตัวรอบ {current_hour}:00 น.\n🔒 สถานะปัจจุบัน: ยังไม่มีคิวว่าง (ใบอนุญาต อ.1)"
-                
-                send_line_message(report_msg, include_image=True)
+            if current_slots:
+                msg_slots = "\n".join(current_slots)
+                report_msg = f"🤖 บอทรายงานตัวรอบ {current_hour}:00 น.\n🟢 สถานะปัจจุบัน: พบคิวว่างในระบบ\n{msg_slots}\n\nลิงก์จอง: {TARGET_URL}"
+            else:
+                report_msg = f"🤖 บอทรายงานตัวรอบ {current_hour}:00 น.\n🔒 สถานะปัจจุบัน: ยังไม่มีคิวว่าง (ใบอนุญาต อ.1)"
+            
+            should_send = True
+            include_image = True
             last_heartbeat = current_date_hour
+
+    # บันทึกข้อความพักไว้ในไฟล์ชั่วคราว ไม่เพิ่งส่งทันที
+    with open(PENDING_FILE, "w", encoding="utf-8") as f:
+        json.dump({
+            "should_send": should_send,
+            "message": report_msg,
+            "include_image": include_image
+        }, f, ensure_ascii=False, indent=4)
 
     save_current_state(current_slots, last_heartbeat)
