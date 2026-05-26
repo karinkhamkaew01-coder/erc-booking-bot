@@ -11,8 +11,6 @@ permissions:
 jobs:
   check-queue:
     runs-on: ubuntu-latest
-    
-    # เพิ่มคำสั่งตรงนี้เพื่อบอก GitHub ให้ใช้ Node 24 และปิดคำเตือนสีเหลือง
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
@@ -24,6 +22,12 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+          
+      # 🇹🇭 เพิ่มขั้นตอนนี้เพื่อติดตั้งฟอนต์ภาษาไทย ให้รูปถ่ายอ่านออกเสียงได้
+      - name: Install Thai Fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-thai-tlwg
           
       - name: Install dependencies
         run: |
@@ -40,7 +44,6 @@ jobs:
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          # แก้ไขบรรทัดด้านล่างนี้ เพิ่ม error_screenshot.png เข้าไปครับ
           git add previous_slots.json error_screenshot.png
           git diff --quiet && git diff --staged --quiet || git commit -m "Update queue state and screenshot"
           git push
