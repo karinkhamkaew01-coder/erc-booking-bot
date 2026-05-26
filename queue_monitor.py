@@ -81,46 +81,41 @@ def check_queue():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    # เพิ่มขนาดหน้าจอให้กว้างพอเพื่อเห็นปฏิทินชัดๆ
-    options.add_argument('--window-size=1920,1200')
+    # เพิ่มขนาดหน้าจอให้ใหญ่มากพอที่จะเห็นปฏิทินโดยไม่ต้องเลื่อนจอมากนัก
+    options.add_argument('--window-size=1920,1800')
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     current_slots = set()
     
     try:
         driver.get(TARGET_URL)
-        wait = WebDriverWait(driver, 20)
+        # ปรับเวลารอให้มากขึ้นเป็น 30 วินาที
+        wait = WebDriverWait(driver, 30)
         
         # 1. คลิกเลือกบริการ "อ.1"
         service_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(), 'อ.1')]")))
         service_button.click()
         print("✅ คลิกเลือก อ.1 สำเร็จ")
         
-        # 2. เลื่อนหน้าจอลงและรอให้ปฏิทินโหลด
+        # 🚨 จุดสำคัญ: 📸 สั่งให้บอทยืนรอจนกว่าตัวปฏิทินจะเรนเดอร์ขึ้นหน้าจอจริงๆ เท่านั้นถึงจะทำต่อ
+        print("⏳ กำลังรอให้ปฏิทินโหลดมาแสดงผล...")
+        # รอให้เจอ Element ที่เป็น 'กริดปฏิทิน' (div ที่มี role=grid)
+        calendar_grid = wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='grid']")))
+        # และรอให้เจอ 'วันแรก' ที่กดเลือกได้ (ตัวแทนว่าข้อมูลปฏิทินมาครบแล้ว)
+        wait.until(EC.presence_of_element_located((By.XPATH, "//button[@role='gridcell']")))
+        print("✅ ปฏิทินโหลดสำเร็จ")
+
+        # 2. เลื่อนหน้าจอลงมานิดหน่อยเพื่อความชัวร์ และถ่ายรูปทั้งหน้าจอปกติ
         time.sleep(2)
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(3) # รอให้ปฏิทินดึงข้อมูลเวลา
+        driver.execute_script("window.scrollTo(0, 300);") # เลื่อนลงนิดเดียวเพื่อให้เห็นตัวปฏิทินชัดๆ
+        time.sleep(1)
         
-        # 3. 📸 [โฟกัสปฏิทิน] ค้นหาตัวปฏิทิน specifically แล้วถ่ายรูปเฉพาะตัวมัน
-        try:
-            # ค้นหา element ที่เป็นกริดปฏิทิน แล้วหา parent container ของมันเพื่อเอาเดือนและลูกศรด้วย
-            calendar_element = driver.find_element(By.XPATH, "//div[@role='grid']/../../..")
-            if calendar_element:
-                # ถ่ายรูปเฉพาะ element ปฏิทิน
-                calendar_element.screenshot('current_state.png')
-                print("📸 บันทึกภาพปฏิทินสำเร็จ (Focus View)")
-            else:
-                # เผื่อหาไม่เจอ ค่อยถ่ายทั้งหน้าจอสำรองไว้
-                driver.save_screenshot('current_state.png')
-                print("📸 บันทึกภาพทั้งหน้าจอ (สำรอง)")
-        except:
-            driver.save_screenshot('current_state.png')
-            print("📸 บันทึกภาพทั้งหน้าจอ (สำรอง)")
+        # ถ่ายรูปหน้าจอมาตรฐาน (คราวนี้ปฏิทินต้องอยู่แน่นอน)
+        driver.save_screenshot('current_state.png')
+        print("📸 บันทึกภาพสถานะปัจจุบันที่มีปฏิทินเรียบร้อย")
             
-        # 4. ดึงข้อมูลคิวปกติ
+        # 3. ดึงข้อมูลคิวปกติ (Xpath ระบบใหม่ของ Microsoft)
         available_days = driver.find_elements(By.XPATH, "//button[@role='gridcell' and not(@disabled)]")
-        if not available_days:
-            available_days = driver.find_elements(By.XPATH, "//button[contains(@class, 'day') and not(@disabled)]")
 
         print(f"🔎 ตรวจพบวันที่ปฏิทินเปิดอยู่ทั้งหมด: {len(available_days)} วัน")
         
@@ -159,7 +154,7 @@ def check_queue():
     return current_slots
 
 if __name__ == "__main__":
-    # ─── โหมดที่ 2: สั่งให้ส่งข้อความ (จะทำงานหลังจาก GitHub อัปโหลดรูปภาพเสร็จแล้ว) ───
+    # ... (ส่วนล่างเหมือนเดิมทั้งหมด) ...
     if len(sys.argv) > 1 and sys.argv[1] == "--send":
         if os.path.exists(PENDING_FILE):
             with open(PENDING_FILE, "r", encoding="utf-8") as f:
@@ -170,7 +165,6 @@ if __name__ == "__main__":
             except: pass
         sys.exit(0)
 
-    # ─── โหมดที่ 1: ตรวจเช็คคิวปกติ ───
     tz_thailand = timezone(timedelta(hours=7))
     now_thailand = datetime.now(tz_thailand)
     
