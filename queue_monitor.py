@@ -81,6 +81,7 @@ def check_queue():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    # เพิ่มขนาดหน้าจอให้กว้างพอเพื่อเห็นปฏิทินชัดๆ
     options.add_argument('--window-size=1920,1200')
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
@@ -90,13 +91,33 @@ def check_queue():
         driver.get(TARGET_URL)
         wait = WebDriverWait(driver, 20)
         
+        # 1. คลิกเลือกบริการ "อ.1"
         service_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(), 'อ.1')]")))
         service_button.click()
+        print("✅ คลิกเลือก อ.1 สำเร็จ")
         
+        # 2. เลื่อนหน้าจอลงและรอให้ปฏิทินโหลด
         time.sleep(2)
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(3)
+        time.sleep(3) # รอให้ปฏิทินดึงข้อมูลเวลา
         
+        # 3. 📸 [โฟกัสปฏิทิน] ค้นหาตัวปฏิทิน specifically แล้วถ่ายรูปเฉพาะตัวมัน
+        try:
+            # ค้นหา element ที่เป็นกริดปฏิทิน แล้วหา parent container ของมันเพื่อเอาเดือนและลูกศรด้วย
+            calendar_element = driver.find_element(By.XPATH, "//div[@role='grid']/../../..")
+            if calendar_element:
+                # ถ่ายรูปเฉพาะ element ปฏิทิน
+                calendar_element.screenshot('current_state.png')
+                print("📸 บันทึกภาพปฏิทินสำเร็จ (Focus View)")
+            else:
+                # เผื่อหาไม่เจอ ค่อยถ่ายทั้งหน้าจอสำรองไว้
+                driver.save_screenshot('current_state.png')
+                print("📸 บันทึกภาพทั้งหน้าจอ (สำรอง)")
+        except:
+            driver.save_screenshot('current_state.png')
+            print("📸 บันทึกภาพทั้งหน้าจอ (สำรอง)")
+            
+        # 4. ดึงข้อมูลคิวปกติ
         available_days = driver.find_elements(By.XPATH, "//button[@role='gridcell' and not(@disabled)]")
         if not available_days:
             available_days = driver.find_elements(By.XPATH, "//button[contains(@class, 'day') and not(@disabled)]")
@@ -126,8 +147,6 @@ def check_queue():
                         current_slots.add(f"📅 {date_identifier} (มีคิวว่าง)")
             except:
                 continue
-                
-        driver.save_screenshot('current_state.png')
                     
     except Exception as e:
         print(f"เกิดข้อผิดพลาด: {e}")
@@ -192,7 +211,6 @@ if __name__ == "__main__":
             include_image = True
             last_heartbeat = current_date_hour
 
-    # บันทึกข้อความพักไว้ในไฟล์ชั่วคราว ไม่เพิ่งส่งทันที
     with open(PENDING_FILE, "w", encoding="utf-8") as f:
         json.dump({
             "should_send": should_send,
