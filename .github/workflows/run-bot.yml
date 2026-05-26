@@ -40,6 +40,7 @@ jobs:
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add previous_slots.json
-          git diff --quiet && git diff --staged --quiet || git commit -m "Update queue state"
+          # แก้ไขบรรทัดด้านล่างนี้ เพิ่ม error_screenshot.png เข้าไปครับ
+          git add previous_slots.json error_screenshot.png
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update queue state and screenshot"
           git push
