@@ -59,68 +59,94 @@ def check_queue():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    # เพิ่มการตั้งค่าขนาดหน้าจอให้กว้างพอเพื่อเห็นปุ่มชัดๆ
-    options.add_argument('--window-size=1920,1080') 
+    options.add_argument('--window-size=1920,1200') # ขยายความสูงจอเพิ่มขึ้น
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     current_slots = set()
     
     try:
         driver.get(TARGET_URL)
-        wait = WebDriverWait(driver, 15)
+        wait = WebDriverWait(driver, 20)
         
-        # ค้นหาปุ่ม อ.1
+        # 1. คลิกเลือกบริการ "อ.1"
         service_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(), 'อ.1')]")))
         service_button.click()
+        print("✅ คลิกเลือก อ.1 สำเร็จ")
         
-        wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(@class, 'ms-CalendarDay-day')]")))
+        # 2. สั่งเลื่อนหน้าจอลงมาด้านล่างสุด เพื่อบังคับให้ปฏิทินโหลดและเรนเดอร์ออกหน้าจอ
         time.sleep(2)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(3) # รอให้ปฏิทินดึงข้อมูลสล็อตเวลา
         
-        available_days = driver.find_elements(By.XPATH, "//button[@aria-disabled='false' and contains(@class, 'ms-CalendarDay-day')]")
+        # 3. ค้นหาวันที่ในปฏิทินของ Microsoft Bookings ตัวใหม่ (มักจะใช้ role='gridcell' หรือปุ่มในตาราง)
+        # มองหาปุ่มวันที่ที่ไม่โดนปิดใช้งาน (not(@disabled) หรือ aria-selected/aria-disabled)
+        available_days = driver.find_elements(By.XPATH, "//button[@role='gridcell' and not(@disabled)]")
+        
+        # หากหาโครงสร้างแบบกริดไม่เจอ ให้ดักควานหาปุ่มที่มีลักษณะเป็นวันที่สำรองไว้
+        if not available_days:
+            available_days = driver.find_elements(By.XPATH, "//button[contains(@class, 'day') and not(@disabled)]")
+
+        print(f"🔎 ตรวจพบวันที่ปฏิทินเปิดอยู่ทั้งหมด: {len(available_days)} วัน")
         
         for day in available_days:
-            date_val = day.get_attribute("data-date")
-            if not date_val or date_val == IGNORED_DATE:
+            # ดึงข้อมูลวันที่ (เวอร์ชั่นใหม่อาจใช้ aria-label เช่น "Monday, June 2, 2026")
+            aria_label = day.get_attribute("aria-label")
+            text_val = day.text
+            
+            # บันทึกข้อมูลจำเพาะของวัน
+            date_identifier = aria_label if aria_label else f"Day {text_val}"
+            
+            # เงื่อนไขข้ามวันที่ 1/6/2569 (2026-06-01)
+            if "June 1, 2026" in date_identifier or "01/06/2026" in date_identifier or "1 มิถุนายน" in date_identifier:
+                print(f"⏭️ พบคิววันที่ {date_identifier} แต่เป็นวันหยุดราชการ (ข้ามตามเงื่อนไข)")
                 continue
                 
-            day.click()
-            time.sleep(1) 
-            time_slots = driver.find_elements(By.XPATH, "//button[contains(@class, 'time-slot')]")
-            
-            for slot in time_slots:
-                time_val = slot.text
-                if time_val:
-                    current_slots.add(f"📅 {date_val} (เวลา {time_val})")
+            try:
+                # ลองคลิกวันที่เพื่อดึงเวลา
+                day.click()
+                time.sleep(1)
+                
+                # ควานหา Slot เวลาที่โผล่ขึ้นมาด้านข้างหรือด้านล่าง
+                time_slots = driver.find_elements(By.XPATH, "//button[contains(@class, 'time') or @role='radio']")
+                
+                if time_slots:
+                    for slot in time_slots:
+                        time_val = slot.text
+                        if time_val:
+                            current_slots.add(f"📅 {date_identifier} (เวลา {time_val})")
+                else:
+                    # ถ้าไม่มีสล็อตเวลาโผล่มา แสดงว่าวันนั้นอาจจะถูกจองเต็มไปแล้วในระบบภายใน
+                    if text_val:
+                        current_slots.add(f"📅 {date_identifier} (มีคิวว่าง)")
+            except Exception as click_err:
+                # เผื่อบางปุ่มเป็นวันของเดือนอื่นที่กดไม่ได้ ให้ข้ามไป
+                continue
                     
     except Exception as e:
         print(f"เกิดข้อผิดพลาดในการดึงข้อมูลเว็บ: {e}")
-        # 📸 เพิ่มโค้ดสั่งถ่ายรูปหน้าจอตรงนี้ครับ!
         try:
+            # ถ่ายรูปหน้าจอเก็บไว้ดูรอบหน้า (คราวนี้จะเห็นฟอนต์ไทยแล้ว)
             driver.save_screenshot('error_screenshot.png')
-            print("📸 บันทึกภาพหน้าจอขณะเกิดข้อผิดพลาดสำเร็จ: error_screenshot.png")
-        except Exception as screenshot_error:
-            print(f"ไม่สามารถถ่ายภาพหน้าจอได้: {screenshot_error}")
+            print("📸 บันทึกภาพหน้าจอขณะเกิดข้อผิดพลาดสำเร็จ")
+        except:
+            pass
     finally:
         driver.quit()
     return current_slots
-    
+
 if __name__ == "__main__":
     previous_slots = load_previous_state()
     current_slots = check_queue()
 
-    # คำนวณความเปลี่ยนแปลง
-    new_available = current_slots - previous_slots  # คิวที่ว่างเพิ่มขึ้นมาใหม่
-    now_full = previous_slots - current_slots       # คิวที่เคยว่าง แต่ตอนนี้เต็มแล้ว
+    new_available = current_slots - previous_slots
+    now_full = previous_slots - current_slots
 
-    # แจ้งเตือนเมื่อมีคิวว่างเพิ่ม
     if new_available:
         msg_available = "\n".join(new_available)
         send_line_message(f"🟢 พบคิวว่างใหม่ (ใบอนุญาต อ.1):\n{msg_available}\n\nลิงก์จอง: {TARGET_URL}")
 
-    # แจ้งเตือนเมื่อคิวที่เคยเล็งไว้เต็มแล้ว
     if now_full:
         msg_full = "\n".join(now_full)
         send_line_message(f"🔴 คิวนี้เต็มแล้ว:\n{msg_full}")
 
-    # บันทึกสถานะปัจจุบันเก็บไว้เทียบในนาทีถัดไป
     save_current_state(current_slots)
