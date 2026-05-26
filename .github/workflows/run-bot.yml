@@ -11,6 +11,11 @@ permissions:
 jobs:
   check-queue:
     runs-on: ubuntu-latest
+    
+    # เพิ่มคำสั่งตรงนี้เพื่อบอก GitHub ให้ใช้ Node 24 และปิดคำเตือนสีเหลือง
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
