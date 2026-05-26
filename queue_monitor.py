@@ -59,6 +59,8 @@ def check_queue():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    # เพิ่มการตั้งค่าขนาดหน้าจอให้กว้างพอเพื่อเห็นปุ่มชัดๆ
+    options.add_argument('--window-size=1920,1080') 
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     current_slots = set()
@@ -67,15 +69,13 @@ def check_queue():
         driver.get(TARGET_URL)
         wait = WebDriverWait(driver, 15)
         
-        # 1. คลิกเลือกบริการ "ใบอนุญาต อ.1"
+        # ค้นหาปุ่ม อ.1
         service_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(), 'อ.1')]")))
         service_button.click()
         
-        # รอให้ปฏิทินโหลดวันที่
         wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(@class, 'ms-CalendarDay-day')]")))
         time.sleep(2)
         
-        # 2. หาปุ่มวันที่ที่กดเลือกได้
         available_days = driver.find_elements(By.XPATH, "//button[@aria-disabled='false' and contains(@class, 'ms-CalendarDay-day')]")
         
         for day in available_days:
@@ -83,11 +83,8 @@ def check_queue():
             if not date_val or date_val == IGNORED_DATE:
                 continue
                 
-            # คลิกที่วันที่เพื่อดูเวลา (Slot) ด้านใน
             day.click()
             time.sleep(1) 
-            
-            # ดึงเวลาที่แสดง (ตรงนี้เป็น XPATH สมมติของปุ่มเวลา ต้องปรับตามหน้าเว็บจริงถ้าคลาสไม่ตรง)
             time_slots = driver.find_elements(By.XPATH, "//button[contains(@class, 'time-slot')]")
             
             for slot in time_slots:
@@ -97,10 +94,16 @@ def check_queue():
                     
     except Exception as e:
         print(f"เกิดข้อผิดพลาดในการดึงข้อมูลเว็บ: {e}")
+        # 📸 เพิ่มโค้ดสั่งถ่ายรูปหน้าจอตรงนี้ครับ!
+        try:
+            driver.save_screenshot('error_screenshot.png')
+            print("📸 บันทึกภาพหน้าจอขณะเกิดข้อผิดพลาดสำเร็จ: error_screenshot.png")
+        except Exception as screenshot_error:
+            print(f"ไม่สามารถถ่ายภาพหน้าจอได้: {screenshot_error}")
     finally:
         driver.quit()
     return current_slots
-
+    
 if __name__ == "__main__":
     previous_slots = load_previous_state()
     current_slots = check_queue()
