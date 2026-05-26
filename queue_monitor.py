@@ -1,9 +1,8 @@
 import os
 import json
 import time
-import sys
-import requests
 from datetime import datetime, timedelta, timezone
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -18,9 +17,8 @@ LINE_USER_ID = os.environ.get('LINE_USER_ID')
 TARGET_URL = 'https://bookings.cloud.microsoft/book/Bookings2@erc.or.th/?ismsaljsauthenabled'
 IGNORED_DATE = '2026-06-01'  # วันที่ 1/6/2569 ข้ามตามเงื่อนไขวันหยุด
 STATE_FILE = 'previous_slots.json'
-PENDING_FILE = 'pending_message.json'
 
-def send_line_message(text_message, include_image=False):
+def send_line_message(text_message):
     if not LINE_ACCESS_TOKEN or not LINE_USER_ID:
         print("❌ ข้อมูล LINE คีย์ลับไม่ครบถ้วน")
         return
@@ -29,22 +27,9 @@ def send_line_message(text_message, include_image=False):
         "Content-Type": "application/json",
         "Authorization": f"Bearer {LINE_ACCESS_TOKEN}"
     }
-    
-    messages = [{"type": "text", "text": text_message}]
-    
-    if include_image:
-        timestamp = int(time.time())
-        raw_image_url = f"https://raw.githubusercontent.com/karinkhamkaew01-coder/erc-booking-bot/main/current_state.png?t={timestamp}"
-        
-        messages.append({
-            "type": "image",
-            "originalContentUrl": raw_image_url,
-            "previewImageUrl": raw_image_url
-        })
-        
     payload = {
         "to": LINE_USER_ID,
-        "messages": messages
+        "messages": [{"type": "text", "text": text_message}]
     }
     try:
         response = requests.post(url, headers=headers, json=payload)
@@ -81,8 +66,6 @@ def check_queue():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    # ตั้ง window สูงมากๆ ตั้งแต่แรก เพื่อให้ render ทั้งหน้าตั้งแต่ต้น
-    options.add_argument('--window-size=1920,5000')
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     current_slots = set()
@@ -90,35 +73,18 @@ def check_queue():
     try:
         driver.get(TARGET_URL)
         wait = WebDriverWait(driver, 30)
-
-        # 1. คลิกเลือกบริการ "อ.1" ก่อน
+        
+        # 1. คลิกเลือกบริการ "อ.1"
         service_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(), 'อ.1')]")))
         service_button.click()
         print("✅ คลิกเลือก อ.1 สำเร็จ")
-
-        # 2. รอให้ปฏิทินโหลดเสร็จ
-        time.sleep(3)
+        
+        # 2. รอโหลดปฏิทิน (ไม่ต้องสนใจแล้วว่าหน้าจอจะเลื่อนไปไหน เพราะเราดึงแค่ข้อความ)
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='grid']")))
-        time.sleep(1)
-
-        # 3. ดึงความสูงจริงของ document แล้วขยาย window ให้พอดี
-        scroll_height = driver.execute_script("""
-            return Math.max(
-                document.body.scrollHeight,
-                document.documentElement.scrollHeight,
-                document.body.offsetHeight,
-                document.documentElement.offsetHeight
-            );
-        """)
-        print(f"📐 document scrollHeight = {scroll_height}px")
-        driver.set_window_size(1920, max(scroll_height, 5000))
-        time.sleep(1)
-
-        # 4. ถ่ายรูปทั้งหน้า
-        driver.save_screenshot('current_state.png')
-        print("📸 ถ่ายรูปทั้งหน้าสำเร็จ")
+        wait.until(EC.presence_of_element_located((By.XPATH, "//button[@role='gridcell']")))
+        print("✅ ปฏิทินโหลดสำเร็จ (ดึงเฉพาะ Text)")
             
-        # 4. ดึงข้อมูลคิวปกติ
+        # 3. ดึงข้อมูลคิว
         available_days = driver.find_elements(By.XPATH, "//button[@role='gridcell' and not(@disabled)]")
         print(f"🔎 ตรวจพบวันที่ปฏิทินเปิดอยู่ทั้งหมด: {len(available_days)} วัน")
         
@@ -131,10 +97,11 @@ def check_queue():
                 continue
                 
             try:
-                day.click()
+                # ให้บอทใช้คำสั่ง Javascript คลิกที่ปุ่มเลย จะได้ไม่ติดปัญหาโดนอะไรบัง
+                driver.execute_script("arguments[0].click();", day)
                 time.sleep(1)
-                time_slots = driver.find_elements(By.XPATH, "//button[contains(@class, 'time') or @role='radio']")
                 
+                time_slots = driver.find_elements(By.XPATH, "//button[contains(@class, 'time') or @role='radio']")
                 if time_slots:
                     for slot in time_slots:
                         time_val = slot.text
@@ -148,25 +115,11 @@ def check_queue():
                     
     except Exception as e:
         print(f"เกิดข้อผิดพลาด: {e}")
-        try:
-            driver.save_screenshot('error_screenshot.png')
-        except:
-            pass
     finally:
         driver.quit()
     return current_slots
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--send":
-        if os.path.exists(PENDING_FILE):
-            with open(PENDING_FILE, "r", encoding="utf-8") as f:
-                pending = json.load(f)
-            if pending.get("should_send"):
-                send_line_message(pending["message"], include_image=pending["include_image"])
-            try: os.remove(PENDING_FILE)
-            except: pass
-        sys.exit(0)
-
     tz_thailand = timezone(timedelta(hours=7))
     now_thailand = datetime.now(tz_thailand)
     
@@ -177,41 +130,30 @@ if __name__ == "__main__":
     now_full = previous_slots - current_slots
 
     should_send = False
-    report_msg = ""
-    include_image = False
 
+    # 🚨 แจ้งเตือนด่วน (คิวว่าง/คิวเต็ม)
     if new_available:
         msg_available = "\n".join(new_available)
-        report_msg = f"🟢 [แจ้งเตือนด่วน] พบคิวว่างใหม่ (ใบอนุญาต อ.1):\n{msg_available}\n\nลิงก์จอง: {TARGET_URL}"
+        send_line_message(f"🟢 [แจ้งเตือนด่วน] พบคิวว่างใหม่ (ใบอนุญาต อ.1):\n{msg_available}\n\nลิงก์จอง: {TARGET_URL}")
         should_send = True
-        include_image = True
 
     elif now_full:
         msg_full = "\n".join(now_full)
-        report_msg = f"🔴 [แจ้งเตือนด่วน] คิวนี้เต็มไปแล้ว:\n{msg_full}"
+        send_line_message(f"🔴 [แจ้งเตือนด่วน] คิวนี้เต็มไปแล้ว:\n{msg_full}")
         should_send = True
-        include_image = True
 
+    # 📢 รายงานตัว 3 เวลา (09:00, 13:00, 16:00)
     current_hour = now_thailand.hour
     current_date_hour = now_thailand.strftime("%Y-%m-%d %H")
     
-    if current_hour in [10, 16] and not should_send:
+    if current_hour in [9, 13, 16] and not should_send:
         if last_heartbeat != current_date_hour:
             if current_slots:
                 msg_slots = "\n".join(current_slots)
-                report_msg = f"🤖 บอทรายงานตัวรอบ {current_hour}:00 น.\n🟢 สถานะปัจจุบัน: พบคิวว่างในระบบ\n{msg_slots}\n\nลิงก์จอง: {TARGET_URL}"
+                send_line_message(f"🤖 บอทรายงานตัวรอบ {current_hour}:00 น.\n🟢 สถานะปัจจุบัน: พบคิวว่างในระบบ\n{msg_slots}\n\nลิงก์จอง: {TARGET_URL}")
             else:
-                report_msg = f"🤖 บอทรายงานตัวรอบ {current_hour}:00 น.\n🔒 สถานะปัจจุบัน: ยังไม่มีคิวว่าง (ใบอนุญาต อ.1)"
+                send_line_message(f"🤖 บอทรายงานตัวรอบ {current_hour}:00 น.\n🔒 สถานะปัจจุบัน: ยังไม่มีคิวว่าง (ใบอนุญาต อ.1)")
             
-            should_send = True
-            include_image = True
             last_heartbeat = current_date_hour
-
-    with open(PENDING_FILE, "w", encoding="utf-8") as f:
-        json.dump({
-            "should_send": should_send,
-            "message": report_msg,
-            "include_image": include_image
-        }, f, ensure_ascii=False, indent=4)
 
     save_current_state(current_slots, last_heartbeat)
